@@ -1,5 +1,6 @@
 import logging
 import struct
+import traceback
 
 from .exceptions import TockLoaderException
 
@@ -63,6 +64,50 @@ class TBFTLVMain(TBFTLV):
         )
         out += "  {:<20}: {:>10} {:>#12x}\n".format(
             "minimum_ram_size", self.minimum_ram_size, self.minimum_ram_size
+        )
+        return out
+
+
+class TBFTLVProgram(TBFTLV):
+    TLVID = 0x09
+
+    def __init__(self, buffer):
+        self.valid = False
+
+        if len(buffer) == 16:
+            base = struct.unpack("<IIII", buffer)
+            self.init_fn_offset = base[0]
+            self.protected_size = base[1]
+            self.minimum_ram_size = base[2]
+            self.binary_end_offset = base[3]
+            self.valid = True
+        else:
+            print("Bad buffer for Program TLV it is length", str(len(buffer)))
+
+    def pack(self):
+        return struct.pack(
+            "<HHIIII",
+            self.TLVID,
+            16,
+            self.init_fn_offset,
+            self.protected_size,
+            self.minimum_ram_size,
+            self.binary_end_offset,
+        )
+
+    def __str__(self):
+        out = "TLV: Program ({})\n".format(self.TLVID)
+        out += "  {:<20}: {:>10} {:>#12x}\n".format(
+            "init_fn_offset", self.init_fn_offset, self.init_fn_offset
+        )
+        out += "  {:<20}: {:>10} {:>#12x}\n".format(
+            "protected_size", self.protected_size, self.protected_size
+        )
+        out += "  {:<20}: {:>10} {:>#12x}\n".format(
+            "minimum_ram_size", self.minimum_ram_size, self.minimum_ram_size
+        )
+        out += "  {:<20}: {:>10} {:>#12x}\n".format(
+            "binary_end_offset", self.binary_end_offset, self.binary_end_offset
         )
         return out
 
@@ -230,6 +275,7 @@ class TBFHeader:
     HEADER_TYPE_PIC_OPTION_1 = 0x04
     HEADER_TYPE_FIXED_ADDRESSES = 0x05
     HEADER_TYPE_KERNEL_VERSION = 0x08
+    HEADER_TYPE_PROGRAM = 0x09
 
     def __init__(self, buffer):
         # Flag that records if this TBF header is valid. This is calculated once
@@ -308,7 +354,7 @@ class TBFHeader:
                 nbuf[:] = full_buffer[0 : self.fields["header_size"]]
                 struct.pack_into("<I", nbuf, 12, 0)
                 checksum = self._checksum(nbuf)
-
+                
                 remaining = self.fields["header_size"] - 16
 
                 # Now check to see if this is an app or padding.
@@ -327,6 +373,10 @@ class TBFHeader:
                         if tipe == self.HEADER_TYPE_MAIN:
                             if remaining >= 12 and length == 12:
                                 self.tlvs.append(TBFTLVMain(buffer[0:12]))
+
+                        elif tipe == self.HEADER_TYPE_PROGRAM:
+                            if remaining >= 16 and length == 16:
+                                self.tlvs.append(TBFTLVProgram(buffer[0:16]))
 
                         elif tipe == self.HEADER_TYPE_WRITEABLE_FLASH_REGIONS:
                             if remaining >= length:
@@ -372,6 +422,7 @@ class TBFHeader:
                                 self.fields["checksum"], checksum
                             )
                         )
+                        self.valid = True
 
                 else:
                     # This is just padding and not an app.
@@ -481,8 +532,8 @@ class TBFHeader:
         else:
             header_size = self.fields["header_size"]
 
-            main_tlv = self._get_tlv(self.HEADER_TYPE_MAIN)
-            protected_size = main_tlv.protected_size
+            program_tlv = self._get_tlv(self.HEADER_TYPE_PROGRAM)
+            protected_size = program_tlv.protected_size
 
             return header_size + protected_size
 
@@ -561,8 +612,8 @@ class TBFHeader:
 
         # Increase the protected size so that the actual application
         # binary hasn't moved.
-        tlv_main = self._get_tlv(self.HEADER_TYPE_MAIN)
-        tlv_main.protected_size += size
+        tlv_program = self._get_tlv(self.HEADER_TYPE_PROGRAM)
+        tlv_program.protected_size += size
         #####
         ##### NOTE! Based on how things are implemented in the Tock
         ##### universe, it seems we also need to increase the
@@ -571,7 +622,7 @@ class TBFHeader:
         ##### the actual application binary (like the documentation
         ##### indicates it should be).
         #####
-        tlv_main.init_fn_offset += size
+        tlv_program.init_fn_offset += size
 
     def modify_tlv(self, tlvid, field, value):
         """
@@ -601,23 +652,23 @@ class TBFHeader:
         # meaningless.
         tlv_fixed_addr = self._get_tlv(self.HEADER_TYPE_FIXED_ADDRESSES)
         if tlv_fixed_addr:
-            tlv_main = self._get_tlv(self.HEADER_TYPE_MAIN)
+            tlv_program = self._get_tlv(self.HEADER_TYPE_PROGRAM)
             # Now see if the header is already the right length.
             if (
-                address + self.fields["header_size"] + tlv_main.protected_size
+                address + self.fields["header_size"] + tlv_program.protected_size
                 != tlv_fixed_addr.fixed_address_flash
             ):
                 # Make sure we need to make the header bigger
                 if (
-                    address + self.fields["header_size"] + tlv_main.protected_size
+                    address + self.fields["header_size"] + tlv_program.protected_size
                     < tlv_fixed_addr.fixed_address_flash
                 ):
                     # The header is too small, so we can fix it.
                     delta = tlv_fixed_addr.fixed_address_flash - (
-                        address + self.fields["header_size"] + tlv_main.protected_size
+                        address + self.fields["header_size"] + tlv_program.protected_size
                     )
                     # Increase the protected size to match this.
-                    tlv_main.protected_size += delta
+                    tlv_program.protected_size += delta
 
                     #####
                     ##### NOTE! Based on how things are implemented in the Tock
@@ -627,7 +678,7 @@ class TBFHeader:
                     ##### the actual application binary (like the documentation
                     ##### indicates it should be).
                     #####
-                    tlv_main.init_fn_offset += delta
+                    tlv_program.init_fn_offset += delta
 
                 else:
                     # The header actually needs to shrink, which we can't do.
@@ -686,12 +737,12 @@ class TBFHeader:
             checksum = self._checksum(buf)
             struct.pack_into("<I", buf, 12, checksum)
 
-            tlv_main = self._get_tlv(self.HEADER_TYPE_MAIN)
-            if tlv_main and tlv_main.protected_size > 0:
+            tlv_program = self._get_tlv(self.HEADER_TYPE_PROGRAM)
+            if tlv_program and tlv_program.protected_size > 0:
                 # Add padding to this header binary to account for the
                 # protected region between the header and the application
                 # binary.
-                buf += b"\0" * tlv_main.protected_size
+                buf += b"\0" * tlv_program.protected_size
 
         return buf
 
@@ -717,8 +768,11 @@ class TBFHeader:
         Return the TLV from the self.tlvs array if it exists.
         """
         for tlv in self.tlvs:
+            print("Checking for TLV", tlvid, " - it is", tlv.get_tlvid())
+            print(str(tlv)) 
             if tlv.get_tlvid() == tlvid:
                 return tlv
+        print("Returning None.")
         return None
 
     def __str__(self):
