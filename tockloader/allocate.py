@@ -15,7 +15,7 @@ don't change the way to reach the solution, just the constraints.
 
 # Useful resources for the z3 solver:
 # https://ericpony.github.io/z3py-tutorial/guide-examples.htm
-# http://theory.stanford.edu/~nikolaj/programmingz3.html#sec-maximizing-satisfying-assignments
+# http://theory.stanford.edu/~nikolaj/programmingz3.html#sec-optimization
 # https://z3prover.github.io/api/html/namespacez3py.html
 
 from dataclasses import dataclass
@@ -84,7 +84,17 @@ def solve(free_memory_start, free_memory_end, align, apps):
         )
         if a < b
     ]
-    print(c_overlap)
-    constraints = And(*(c_placement + c_size + c_start + c_overlap))
-    
-    return z3.solve(constraints)
+
+    constraints = (c_placement + c_size + c_start + c_overlap)
+    s.add(*constraints)
+    if s.check() == unknown:
+        raise ValueError("Solution unknown")
+    elif s.check() == unsat:
+        return None
+    else:
+        return s.model()
+
+def test():
+    apps = [App('a', 0, 10, False), App('b', 0, 10, True)]
+    model = solve(0,100, 1, apps)
+    assert(model[Int('start/b')] == 0)
