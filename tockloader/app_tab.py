@@ -212,7 +212,10 @@ class TabApp:
         return True
 
     def get_tbf_for_address(self, address):
-        """Find the most fitting tbf that can be placed at this address"""
+        """
+        Find the most fitting tbf that can be placed at this address,
+        or returns None.
+        """
         for tbf in self.tbfs:
             tbfh = tbf.tbfh
 
@@ -242,6 +245,7 @@ class TabApp:
                 and (address + tbf_header_length + 128) > fixed_flash_address
             ):
                 return tbf
+        return None
 
     def get_binary(self, address):
         """
