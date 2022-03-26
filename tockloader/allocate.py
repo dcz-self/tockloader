@@ -24,19 +24,34 @@ from itertools import product
 import z3
 from z3 import *
 
+
 @dataclass
 class App:
+    """Base dataclass for apps which can be placed anywhere."""
     name: str
-    start: int
     size: int
-    fixed: bool
+    already_flashed: bool
+
+    def is_pic(self):
+        return True
+
+
+@dataclass
+class FixedApp(App):
+    start: int
+
+    def is_pic(self):
+        return False
+
 
 def ceildiv(a, b):
     return -(a // -b)
 
+
 def is_power_of_two(x):
     powers = [ 2**i for i in range(32) ]
     return Or([ x == p for p in powers ])
+
 
 """For cortex-m, align should be 256, because that's the minimum region size, and tock assigns the entire region to the app."""
 def solve(free_memory_start, free_memory_end, align, apps):
@@ -70,7 +85,8 @@ def solve(free_memory_start, free_memory_end, align, apps):
 
     c_start = [
         a.start // align >= start
-        for a, start in zip(apps, starts) if a.fixed
+        for a, start in zip(apps, starts)
+        if not a.is_pic()
     ]
     
     c_overlap = [
@@ -99,7 +115,7 @@ def solve(free_memory_start, free_memory_end, align, apps):
         return s.model()
 
 def test():
-    apps = [App('a', 0, 10, False), App('b', 0, 10, True)]
+    apps = [App('a', 10, False), FixedApp('b', 10, False, 0)]
     model = solve(0,100, 1, apps)
 
     assert(model[Int('start/a')].as_long() % 16 == 0)
