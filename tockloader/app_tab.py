@@ -220,60 +220,6 @@ class TabApp:
 
         return False
 
-    def fix_at_next_loadable_address(self, address):
-        """
-        Calculate the next reasonable address where we can put this app where
-        the address is greater than or equal to `address`. The `address`
-        argument is the earliest address the app can be at, either the start of
-        apps or immediately after a previous app. Then return that address.
-        If we can't satisfy the request, return None.
-
-        The "fix" part means remove all TBFs except for the one that we used
-        to meet the address requirements.
-
-        If the app doesn't have a fixed address, then we can put it anywhere,
-        and we just return the address. If the app is compiled with fixed
-        addresses, then we need to calculate an address. We do a little bit of
-        "reasonable assuming" here. Fixed addresses are based on where the _app
-        binary_ must be located. Therefore, the start of the app where the TBF
-        header goes must be before that. This can be at any address (as long as
-        the header will fit), but we want to make this simpler, so we just
-        assume the TBF header should start on a 1024 byte alignment.
-        """
-        if not self.has_fixed_addresses():
-            # No fixed addresses means we can put the app anywhere.
-            return address
-
-        def align_down_to(v, a):
-            """
-            Calculate the address correctly aligned to `a` that is lower than or
-            equal to `v`.
-            """
-            return v - (v % a)
-
-        # Find the binary with the lowest valid address that is above `address`.
-        best_address = None
-        best_index = None
-        for i, tbf in enumerate(self.tbfs):
-            fixed_flash_address = tbf.tbfh.get_fixed_addresses()[1]
-
-            # Align to get a reasonable address for this app.
-            wanted_address = align_down_to(fixed_flash_address, 1024)
-
-            if wanted_address >= address:
-                if best_address == None:
-                    best_address = wanted_address
-                    best_index = i
-                elif wanted_address < best_address:
-                    best_address = wanted_address
-                    best_index = i
-
-        if best_index != None:
-            self.tbfs = [self.tbfs[best_index]]
-            return best_address
-        else:
-            return None
-
     def delete_tbfh_tlv(self, tlvid):
         """
         Delete a particular TLV from each TBF header.
