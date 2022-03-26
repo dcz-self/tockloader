@@ -205,18 +205,12 @@ class InstalledApp:
         """
         return self.app_binary
 
-    def get_binary(self, address):
-        """
-        Return the binary array comprising the entire application if it needs to
-        be written to the board. Otherwise, if it is already installed, return
-        `None`.
-        """
-        # Since this is an already installed app, we first check to see if
-        # anything actually changed. If not, then we don't need to re-flash this
-        # app.
-        if not self.is_modified() and address == self.address:
-            return None
-
+    def get_binary(self, address, channel):
+        logging.info("Reading app {} binary from board.".format(self))
+        entire_app = channel.read_range(self.address, self.get_size())
+        in_flash_tbfh = TBFHeader(entire_app)
+        self.set_app_binary(entire_app[in_flash_tbfh.get_header_size() :])
+        
         # Set the starting address for this app. This is only relevant with
         # fixed addresses, and is a no-op for apps which are not compiled for
         # fixed addresses.

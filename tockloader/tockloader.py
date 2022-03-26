@@ -905,22 +905,14 @@ class TockLoader:
     def _reshuffle_apps(self, apps):
         """
         Given an array of apps, some of which are new and some of which exist,
-        sort them so we can write them to flash.
+        find how they can fit in the flash together, and write them.
 
         This function is really the driver of tockloader, and is responsible for
         setting up applications in a way that can be successfully used by the
         board.
         """
         from . import allocate
-        #
-        # JUNE 2020: This function can be really complicated (balancing apps
-        # compiled for a fixed address, MPU alignment concerns, ordering
-        # concerns, handling apps from TABs and already installed etc.) and by
-        # no means is the current implementation arriving at an optimal
-        # solution. An interested contributor could probably find many
-        # improvements and optimizations.
-        #
-
+ 
         # Get where the apps live in flash.
         start_address = self._get_apps_start_address()
         # HACK! Let's assume no board has more than 2 MB of flash.
@@ -930,7 +922,7 @@ class TockLoader:
             allocate.FixedApp(
                 app.get_name(),
                 app.get_size(),
-                False,
+                isinstance(app, InstalledApp),
                 [start for start, size in app.get_fixed_addresses_flash_and_sizes()]
             )
             if app.has_fixed_addresses()
@@ -940,179 +932,62 @@ class TockLoader:
         # HACK: this only works for Cortex-M, for demonstration purposes.
         solution = allocate.solve(start_address, end_address, 256, solver_apps)
         if solution is None:
-            logging.error("Unable to find a valid sort order to flash apps.")
+            logging.error("Unable to find a valid placement solution to flash apps.")
             return
-        for app in apps:
+
+        placements = [(app, solution.get_placement(app.get_name())) for app in apps]
+
+        for app, placement in placements:
             print(
                 repr(app.get_name()),
                 "placed at: 0x{:x}, size 0x{:x}"
-                    .format(*solution.get_placement(app.get_name()))
+                    .format(*placement)
             )
-        return
-
-            # See if we can find an ordering that works.
-            valid_order = brad_sort(slices)
-            if valid_order == None:
-                logging.error("Unable to find a valid sort order to flash apps.")
-                if self.args.debug:
-                    for app in apps:
-                        logging.debug("{}".format(app.info(True)))
-                return
-
-            # Iterate all of the apps, and see if we can make this work based on
-            # having apps compiled for the correct addresses. If so, great! If
-            # not, error for now.
-            to_flash_apps = []
-            app_address = address
-            for app in apps:
-                # Get a version of that app that we can put at a desirable address.
-                next_loadable_address = app.fix_at_next_loadable_address(app_address)
-
-                if next_loadable_address == app_address:
-                    to_flash_apps.append(app)
-                    app_address += app.get_size()
-
-                elif next_loadable_address != None:
-                    # Need to add padding.
-                    padding_app = PaddingApp(next_loadable_address - app_address)
-                    to_flash_apps.append(padding_app)
-                    app_address += padding_app.get_size()
-
-                    to_flash_apps.append(app)
-                    app_address += app.get_size()
-
-                else:
-                    logging.error('Trying to find a location for app "{}"'.format(app))
-                    logging.error("  Address to use is {:#x}".format(app_address))
-                    raise TockLoaderException(
-                        "Could not load apps due to address mismatches"
-                    )
-
-            # Actually write apps to the board.
-            app_address = address
-            if self.args.bundle_apps:
-                # Tockloader has been configured to bundle all apps as a single
-                # binary. Here we concatenate all apps and then call flash once.
-                #
-                # This should be compatible with all boards, but if there
-                # several existing apps they have to be re-flashed, and that
-                # could add significant overhead. So, we prefer to flash only
-                # what has changed and special case this bundle operation.
-                app_bundle = bytearray()
-                for app in to_flash_apps:
-                    app_bundle += app.get_binary(app_address)
-                    app_address += app.get_size()
-                logging.info(
-                    "Installing app bundle. Size: {} bytes.".format(len(app_bundle))
+        
+        # Flash only apps that are new or have been modified.
+        # The only way an app
+        # would not be modified is if it was read off the board.
+        to_flash_apps = [
+            (app, (start, size)) for (app, (start, size)) in apps
+            if not isinstance(app, InstalledApp)
+                or app.get_start() != start
+        ]
+        
+        to_flash_apps = list(sorted(to_flash_apps, key=lambda a: a[1]))
+        
+        last_end = None
+        apps_with_gaps = []
+        for app, (start, size) in to_flash_apps:
+            if last_end != start:
+                # Tock detects apps by valid tbf headers, one after another.
+                # An area between apps needsits own header,
+                # or the kernel will stop scanning.
+                gap_size = start - last-end
+                apps_with_gaps.append(
+                    (PaddingApp(gap_size), last_end, gap_size)
                 )
-                self.channel.flash_binary(address, app_bundle)
-            else:
-                # Flash only apps that have been modified. The only way an app
-                # would not be modified is if it was read off the board and
-                # nothing changed.
-                for app in to_flash_apps:
-                    # If we get a binary, then we need to flash it. Otherwise,
-                    # the app is already installed.
-                    optional_binary = app.get_binary(app_address)
-                    if optional_binary:
-                        self.channel.flash_binary(app_address, optional_binary)
-                    app_address = app_address + app.get_size()
+            apps_with_gaps.append((app, start, size))
+            last_end = start + size
 
-            # Then erase the next page if we have not already rewritten all
-            # existing apps. This ensures that flash is clean at the end of the
-            # installed apps and makes sure the kernel will find the correct end
-            # of applications.
-            self.channel.clear_bytes(app_address)
+        # Apps already on the board may get a new address.
+        # Read their data before flashing,
+        # or it may get overwritten prematurely by the flashing itself!
+        binaries = [(start, app.get_binary(start, self.channel))
+            for app, start, size in apps_with_gaps]
 
-            # Handled fixed address case, do not continue on to run the
-            # non-fixed address case.
-            return
+        if not dry:
+            # Actually write apps to the board.
+            for start, binary in binaries:
+                self.channel.flash_binary(start, binary)
+            
+            if last_end:
+                # Then erase the next page if we have not already rewritten all
+                # existing apps. This ensures that flash is clean at the end of the
+                # installed apps and makes sure the kernel will find the correct end
+                # of applications.
+                self.channel.clear_bytes(last_end)
 
-        #
-        # This is the normal PIC case
-        #
-
-        # We are given an array of apps. First we need to order them based on
-        # the ordering requested by this board (or potentially the user).
-        if self.app_settings["order"] == "size_descending":
-            apps.sort(key=lambda app: app.get_size(), reverse=True)
-        elif self.app_settings["order"] == None:
-            # Any order is fine.
-            pass
-        else:
-            raise TockLoaderException("Unknown sort order. This is a tockloader bug.")
-
-        # Decide if we need to read the existing binary from flash into memory.
-        # We can need to do this for various reasons:
-        #
-        # 1. If the app location has changed, and we will need to write it to
-        #    its new location.
-        # 2. If we are flashing all apps at once as a bundle.
-        # 3. If the TBF header has changed and we need to update it in flash.
-        #
-        # If apps are moving then we need to read their contents off the board
-        # so we can re-flash them in their new spot. Also, tockloader supports
-        # flashing all apps as a single binary, as some boards have
-        # flash controllers that require an erase before any writes, and the
-        # erase covers a large area of flash. In that case, we must read all
-        # apps and then re-write them, since otherwise they will be erased.
-        #
-        # So, we iterate through all apps and read them into memory if we are
-        # doing an erase and re-flash cycle or if the app has moved.
-        app_address = address
-        for app in apps:
-            # If we do not already have a binary, and any of the conditions are
-            # met, we need to read the app binary from the board.
-            if (not app.has_app_binary()) and (
-                self.args.bundle_apps
-                or app.get_address() != app_address
-                or app.is_modified()
-            ):
-                logging.info("Reading app {} binary from board.".format(app))
-                entire_app = self.channel.read_range(app.address, app.get_size())
-                in_flash_tbfh = TBFHeader(entire_app)
-                app.set_app_binary(entire_app[in_flash_tbfh.get_header_size() :])
-
-            app_address += app.get_size()
-
-        # Need to know the address we are putting each app at.
-        app_address = address
-
-        # Actually write apps to the board.
-        if self.args.bundle_apps:
-            # Tockloader has been configured to bundle all apps as a single
-            # binary. Here we concatenate all apps and then call flash once.
-            #
-            # This should be compatible with all boards, but if there several
-            # existing apps they have to be re-flashed, and that could add
-            # significant overhead. So, we prefer to flash only what has changed
-            # and special case this bundle operation.
-            app_bundle = bytearray()
-            for app in apps:
-                app_bundle += app.get_binary(app_address)
-                app_address += app.get_size()
-            logging.info(
-                "Installing app bundle. Size: {} bytes.".format(len(app_bundle))
-            )
-            self.channel.flash_binary(address, app_bundle)
-        else:
-            # Flash only apps that have been modified. The only way an app would
-            # not be modified is if it was read off the board and nothing
-            # changed.
-            for app in apps:
-                # If we get a binary, then we need to flash it. Otherwise,
-                # the app is already installed.
-                optional_binary = app.get_binary(app_address)
-                if optional_binary:
-                    logging.info("Flashing app {} binary to board.".format(app))
-                    self.channel.flash_binary(app_address, optional_binary)
-                app_address = app_address + app.get_size()
-
-        # Then erase the next page if we have not already rewritten all existing
-        # apps. This ensures that flash is clean at the end of the installed
-        # apps and makes sure the kernel will find the correct end of
-        # applications.
-        self.channel.clear_bytes(app_address)
+        return
 
     def _replace_with_padding(self, app):
         """

@@ -75,7 +75,6 @@ def is_power_of_two(x):
     powers = [ 2**i for i in range(32) ]
     return Or([ x == p for p in powers ])
 
-
 def solve_flash(free_memory_start, free_memory_end, align, apps):
     # Divide all constant values by alignment.
     # Remainders don't serve any purpose,
@@ -137,7 +136,7 @@ def solve_flash(free_memory_start, free_memory_end, align, apps):
     # Calculating ends to ensure that the largest app is not left at the end
     # if it could swap with an earlier one.
     s.minimize(sum(start + size for start, size in zip(starts, sizes)))
-
+    # TODO: try to keep installed PIC apps where they already are.
     if s.check() == unknown:
         raise ValueError("Solution unknown")
     elif s.check() == unsat:
