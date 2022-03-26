@@ -19,6 +19,7 @@ don't change the way to reach the solution, just the constraints.
 # https://z3prover.github.io/api/html/namespacez3py.html
 
 from dataclasses import dataclass
+import functools
 from itertools import product
 import z3
 from z3 import *
@@ -41,7 +42,7 @@ def is_power_of_two(x):
 def solve(free_memory_start, free_memory_end, align, apps):
     free_memory_start //= align
     free_memory_end //= align
-    s = Solver()
+    s = Optimize()
 
     # Free variables: we want to find them.
     starts = [Int("start/" + a.name) for a in apps]
@@ -87,6 +88,9 @@ def solve(free_memory_start, free_memory_end, align, apps):
 
     constraints = (c_placement + c_size + c_start + c_overlap)
     s.add(*constraints)
+
+    s.minimize(functools.reduce(lambda x, y: x + y, sizes))
+
     if s.check() == unknown:
         raise ValueError("Solution unknown")
     elif s.check() == unsat:
@@ -97,4 +101,10 @@ def solve(free_memory_start, free_memory_end, align, apps):
 def test():
     apps = [App('a', 0, 10, False), App('b', 0, 10, True)]
     model = solve(0,100, 1, apps)
+
+    assert(model[Int('start/a')].as_long() % 16 == 0)
+    assert(model[Int('size/a')] == 16)
+    
     assert(model[Int('start/b')] == 0)
+    assert(model[Int('size/b')] == 16)
+    
