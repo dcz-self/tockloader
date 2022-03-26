@@ -102,12 +102,18 @@ def solve_flash(free_memory_start, free_memory_end, align, apps):
 
     c_size = [ceildiv(a.size, align) <= size for a, size in zip(apps, sizes)]
 
-    c_start = [
-        Or(*[app_start // align >= start for app_start in a.get_fixed_starts()])
-        for a, start in zip(apps, starts)
+    c_fixed = [
+        Or(*[
+            And(
+                app_start // align >= start,
+                ceildiv(app_start + a.size, align) <= start + size
+            )
+            for app_start in a.get_fixed_starts()
+        ])
+        for a, start, size in zip(apps, starts, sizes)
         if a.get_fixed_starts()
     ]
-    
+
     c_overlap = [
         Or(
             a_start >= b_start + b_end,
@@ -121,7 +127,7 @@ def solve_flash(free_memory_start, free_memory_end, align, apps):
         if a < b
     ]
 
-    constraints = (c_placement + c_size + c_start + c_overlap)
+    constraints = (c_placement + c_size + c_fixed + c_overlap)
     s.add(*constraints)
 
     # Don't let apps reserve arbitrary amounts of space.
@@ -222,3 +228,15 @@ def test_ram():
     
     assert(model[Int('start/b')] == 0)
     assert(model[Int('size/b')] == 16)
+
+
+def test_flash():
+    apps = [FixedApp('a', 10, False, [0x10]), FixedApp('b', 10, False, [2048])]
+    assert(solve_flash(0, 2048, 1024, apps) is None)
+
+    apps = [FixedApp('a', 10, False, [0x10]), FixedApp('b', 10, False, [1020])]
+    assert(solve_flash(0, 2048, 1024, apps) is None)
+    
+    apps = [FixedApp('a', 10, False, [0x10]), FixedApp('b', 10, False, [2040])]
+    solution = solve_flash(0, 0x1000, 1024, apps)
+    assert(solution.get_placement("b") == (1024, 2048))
