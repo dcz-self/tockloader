@@ -299,37 +299,48 @@ class TabApp:
         """
         Return the binary array comprising the entire application.
 
-        This is only valid if there is one TBF file.
-
         `address` is the address of flash the _start_ of the app will be placed
         at. This means where the TBF header will go.
         """
 
-        if len(self.tbfs) == 1:
-            tbfh = self.tbfs[0].tbfh
-            app_binary = self.tbfs[0].binary
+        fitting_tbf = None
+        for tbf in self.tbfs:
+            tbfh = tbf.tbfh
 
+            fixed_addresses = tbfh.get_fixed_addresses()
             # If the TBF is not compiled for a fixed address, then we can just
             # use it.
-            if tbfh.has_fixed_addresses() == False:
-                binary = tbfh.get_binary() + app_binary
+            if fixed_addresses is None:
+                fitting_tbf = tbf
+                break
 
-            else:
-                tbfh.adjust_starting_address(address)
-                binary = tbfh.get_binary() + app_binary
+        if fitting_tbf is None:
+            # Find first tbf that can operate within the selected range:
+            # after `address`
+            for tbf in sorted(self.tbfs, lambda tbf: tbf.get_fixed_addresses()[1]):
+                tbfh = tbf.tbfh
+                ram, flash = tbfh.get_fixed_addresses()
+                if flash >= address:
+                    fitting_tbf = tbf
+                    break
 
-            # Check that the binary is not longer than it is supposed to be.
-            # This might happen if the size was changed, but any code using this
-            # binary has no way to check. If the binary is too long, we truncate
-            # the actual binary blob (which should just be padding) to the
-            # correct length. If it is too short it is ok, since the board
-            # shouldn't care what is in the flash memory the app is not using.
-            binary = self._truncate_binary(binary)
+        if fitting_tbf is None:
+            raise ("Can't place this app here")
+        
+        app_binary = fitting_tbf.binary
+        tbfh = fitting_tbf.tbfh
+        tbfh.adjust_starting_address(address)
+        binary = tbfh.get_binary() + app_binary
 
-            return binary
+        # Check that the binary is not longer than it is supposed to be.
+        # This might happen if the size was changed, but any code using this
+        # binary has no way to check. If the binary is too long, we truncate
+        # the actual binary blob (which should just be padding) to the
+        # correct length. If it is too short it is ok, since the board
+        # shouldn't care what is in the flash memory the app is not using.
+        binary = self._truncate_binary(binary)
 
-        else:
-            raise ("Only valid for one TBF file.")
+        return binary
 
     def get_names_and_binaries(self):
         """
