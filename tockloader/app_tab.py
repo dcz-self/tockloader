@@ -190,36 +190,6 @@ class TabApp:
             )
         return apps_in_flash
 
-    def is_loadable_at_address(self, address):
-        """
-        Check if it is possible to load this app at the given address. Returns
-        True if it is possible, False otherwise.
-        """
-        if not self.has_fixed_addresses():
-            # No fixed addresses means we can put the app anywhere.
-            return True
-
-        # Otherwise, see if we have a TBF which can go at the requested address.
-        for tbf in self.tbfs:
-            fixed_flash_address = tbf.tbfh.get_fixed_addresses()[1]
-            tbf_header_length = tbf.tbfh.get_header_size()
-
-            # Ok, we have to be a little tricky here. What we actually care
-            # about is ensuring that the application binary itself ends up at
-            # the requested fixed address. However, what this function has to do
-            # is see if the start of the TBF header can go at the requested
-            # address. We have some flexibility, since we can make the header
-            # larger so that it pushes the application binary to the correct
-            # address. So, we want to see if we can reasonably do that. If we
-            # are within 128 bytes, we say that we can.
-            if (
-                fixed_flash_address >= (address + tbf_header_length)
-                and (address + tbf_header_length + 128) > fixed_flash_address
-            ):
-                return True
-
-        return False
-
     def delete_tbfh_tlv(self, tlvid):
         """
         Delete a particular TLV from each TBF header.
@@ -241,15 +211,8 @@ class TabApp:
         # By definition, a TabApp will have an app binary.
         return True
 
-    def get_binary(self, address):
-        """
-        Return the binary array comprising the entire application.
-
-        `address` is the address of flash the _start_ of the app will be placed
-        at. This means where the TBF header will go.
-        """
-
-        fitting_tbf = None
+    def get_tbf_for_address(self, address):
+        """Find the most fitting tbf that can be placed at this address"""
         for tbf in self.tbfs:
             tbfh = tbf.tbfh
 
@@ -257,19 +220,37 @@ class TabApp:
             # If the TBF is not compiled for a fixed address, then we can just
             # use it.
             if fixed_addresses is None:
-                fitting_tbf = tbf
-                break
+                return tbf
 
-        if fitting_tbf is None:
-            # Find first tbf that can operate within the selected range:
-            # after `address`
-            for tbf in sorted(self.tbfs, lambda tbf: tbf.get_fixed_addresses()[1]):
-                tbfh = tbf.tbfh
-                ram, flash = tbfh.get_fixed_addresses()
-                if flash >= address:
-                    fitting_tbf = tbf
-                    break
+        # Find first tbf that can operate within the selected range:
+        # after `address`
+        for tbf in sorted(self.tbfs, lambda tbf: tbf.get_fixed_addresses()[1]):
+            ram, flash = tbf.tbfh.get_fixed_addresses()
+            
+            tbf_header_length = tbf.tbfh.get_header_size()
 
+            # Ok, we have to be a little tricky here. What we actually care
+            # about is ensuring that the application binary itself ends up at
+            # the requested fixed address. However, what this function has to do
+            # is see if the start of the TBF header can go at the requested
+            # address. We have some flexibility, since we can make the header
+            # larger so that it pushes the application binary to the correct
+            # address. So, we want to see if we can reasonably do that. If we
+            # are within 128 bytes, we say that we can.
+            if (
+                fixed_flash_address >= (address + tbf_header_length)
+                and (address + tbf_header_length + 128) > fixed_flash_address
+            ):
+                return tbf
+
+    def get_binary(self, address):
+        """
+        Return the binary array comprising the entire application.
+
+        `address` is the address of flash the _start_ of the app will be placed
+        at. This means where the TBF header will go.
+        """
+        fitting_tbf = self.get_tbf_for_address(self, address)
         if fitting_tbf is None:
             raise ("Can't place this app here")
         
