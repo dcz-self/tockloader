@@ -911,7 +911,7 @@ class TockLoader:
         setting up applications in a way that can be successfully used by the
         board.
         """
-
+        from . import allocate
         #
         # JUNE 2020: This function can be really complicated (balancing apps
         # compiled for a fixed address, MPU alignment concerns, ordering
@@ -922,7 +922,23 @@ class TockLoader:
         #
 
         # Get where the apps live in flash.
-        address = self._get_apps_start_address()
+        start_address = self._get_apps_start_address()
+        # HACK! Let's assume no board has more than 2 MB of flash.
+        end_address = start_address + 0x200000
+
+        solver_apps = [
+            allocate.FixedApp(
+                app.get_name(),
+                app.get_size(),
+                False,
+                [start for start, size in app.get_fixed_addresses_flash_and_sizes()]
+            )
+            if app.has_fixed_addresses()
+            else allocate.App(app.get_name(), app.get_size(), False)
+            for app in apps
+        ]
+        # HACK: this only works for Cortex-M, for demonstration purposes.
+        return
 
         # First, we are going to split the work into two cases: do we have any
         # app that is compiled for a fixed address, or not? Likely, there won't
