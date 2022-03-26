@@ -39,12 +39,32 @@ class App:
 
 @dataclass
 class FixedApp(App):
+    # Applications that really deliver multiple binaries
+    # have one size for all versions. Choose the maximum?
+    # The solver *could* probably include a proper algorithm for that,
+    # including sorting, but finding the sorting formula
+    # each time the sorting needs to change is not worth the effort.
+    # Multiple versions are a hack anyway.
     starts: [int]
 
     def get_fixed_starts(self):
         if len(self.starts) == 0:
             raise ValueError("No starts provided")
         return self.starts
+
+
+@dataclass
+class Solution:
+    """Wraps the model for convenience of accessing the results."""
+    align: int
+    model: ModelRef
+
+    def get_placement(self, name):
+        """Returns start and size"""
+        return (
+            self.model[Int('start/' + name)].as_long() * self.align,
+            self.model[Int('size/' + name)].as_long() * self.align,
+        )
 
 
 def ceildiv(a, b):
@@ -56,8 +76,72 @@ def is_power_of_two(x):
     return Or([ x == p for p in powers ])
 
 
+def solve_flash(free_memory_start, free_memory_end, align, apps):
+    # Divide all constant values by alignment.
+    # Remainders don't serve any purpose,
+    # and this way variables will be aligned for free (after multiplying back).
+    free_memory_start = ceildiv(free_memory_start, align)
+    free_memory_end //= align
+    s = Optimize()
+
+    # Free variables: we want to find them.
+    starts = [Int("start/" + a.name) for a in apps]
+    sizes = [Int("size/" + a.name) for a in apps]
+
+    # constraints
+    def within_memory(start, size):
+        return And(
+            start >= free_memory_start,
+            start + size <= free_memory_end,
+        )
+
+    c_placement = [
+        within_memory(start, size)
+        for start, size in zip(starts, sizes)
+    ]
+
+    c_size = [ceildiv(a.size, align) <= size for a, size in zip(apps, sizes)]
+
+    c_start = [
+        Or(*[app_start // align >= start for app_start in a.get_fixed_starts()])
+        for a, start in zip(apps, starts)
+        if a.get_fixed_starts()
+    ]
+    
+    c_overlap = [
+        Or(
+            a_start >= b_start + b_end,
+            b_start >= a_start + a_end,
+        )
+        for (a, (a_start, a_end)), (b, (b_start, b_end))
+        in product(
+            enumerate(zip(starts, sizes)),
+            enumerate(zip(starts, sizes)),
+        )
+        if a < b
+    ]
+
+    constraints = (c_placement + c_size + c_start + c_overlap)
+    s.add(*constraints)
+
+    # Don't let apps reserve arbitrary amounts of space.
+    s.minimize(sum(sizes))
+    # Nudge apps towards the beginning.
+    # This should fill the gaps and effectively sort them small-to-large.
+    # Calculating ends to ensure that the largest app is not left at the end
+    # if it could swap with an earlier one.
+    s.minimize(sum(start + size for start, size in zip(starts, sizes)))
+
+    if s.check() == unknown:
+        raise ValueError("Solution unknown")
+    elif s.check() == unsat:
+        return None
+    else:
+        return Solution(align, s.model())
+
+
 """For cortex-m, align should be 256, because that's the minimum region size, and tock assigns the entire region to the app."""
-def solve(free_memory_start, free_memory_end, align, apps):
+def solve_ram(free_memory_start, free_memory_end, align, apps):
     free_memory_start //= align
     free_memory_end //= align
     s = Optimize()
@@ -115,11 +199,11 @@ def solve(free_memory_start, free_memory_end, align, apps):
     elif s.check() == unsat:
         return None
     else:
-        return s.model()
+        return Solution(align, s.model())
 
-def test():
+def test_ram():
     apps = [App('a', 10, False), FixedApp('b', 10, False, [0])]
-    model = solve(0,100, 1, apps)
+    model = solve_ram(0,100, 1, apps).model
 
     assert(model[Int('start/a')].as_long() % 16 == 0)
     assert(model[Int('size/a')] == 16)
@@ -128,11 +212,11 @@ def test():
     assert(model[Int('size/b')] == 16)
     
     apps = [FixedApp('a', 10, False, [10]), FixedApp('b', 10, False, [10])]
-    model = solve(0, 100, 1, apps)
-    assert(model is None)
+    solution = solve_ram(0, 100, 1, apps)
+    assert(solution is None)
     
     apps = [FixedApp('a', 10, False, [0x10]), FixedApp('b', 10, False, [0, 10])]
-    model = solve(0, 100, 1, apps)
+    model = solve_ram(0, 100, 1, apps).model
     assert(model[Int('start/a')] == 0x10)
     assert(model[Int('size/a')] == 16)
     

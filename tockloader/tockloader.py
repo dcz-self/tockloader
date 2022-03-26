@@ -938,76 +938,17 @@ class TockLoader:
             for app in apps
         ]
         # HACK: this only works for Cortex-M, for demonstration purposes.
-        return
-
-        # First, we are going to split the work into two cases: do we have any
-        # app that is compiled for a fixed address, or not? Likely, there won't
-        # be platforms that have mixed fixed address apps and PIC apps. This
-        # split simplifies things, but a better algorithm would not have this
-        # split.
-        is_fixed_address_app = False
+        solution = allocate.solve(start_address, end_address, 256, solver_apps)
+        if solution is None:
+            logging.error("Unable to find a valid sort order to flash apps.")
+            return
         for app in apps:
-            if app.has_fixed_addresses():
-                is_fixed_address_app = True
-
-        if is_fixed_address_app:
-            if not all(map(lambda x: x.has_fixed_addresses(), apps)):
-                raise TockLoaderException("Mixing fixed address and position-independent apps is currently unsupported")
-            #
-            # This is the fixed addresses case
-            #
-
-            def brad_sort(slices):
-                """
-                Get an ordering of apps where the fixed start addresses are
-                respected and the apps do not overlap.
-
-                Brute force method!
-                """
-
-                def is_valid(slices):
-                    """
-                    Check if the list of app regions (slices) can fit correctly.
-                    """
-                    slices = list(slices)
-                    slices.sort(key=lambda x: x[0])
-                    end = 0
-                    for s in slices:
-                        if s[0] < end:
-                            return False
-                        end = s[0] + s[1]
-                    return True
-
-                # Get a list of all possible orderings.
-                options = itertools.product(*slices)
-                # See if any work.
-                for o in options:
-                    if is_valid(o):
-                        return o
-
-                # Couldn't find a valid ordering.
-                return None
-
-            # Get a list of all possible start and length pairs for each app to
-            # flash. Also keep around the index of the app in original array.
-            slices = []
-            for i, app in enumerate(apps):
-                apps_in_flash = app.get_fixed_addresses_flash_and_sizes()
-                app_slices = []
-                for starting_address, size in apps_in_flash:
-                    if starting_address < address:
-                        # Can't use an app below the start of apps address.
-                        continue
-                    # HACK! Let's assume no board has more than 2 MB of flash.
-                    if starting_address > (address + 0x200000):
-                        logging.debug(
-                            "Ignoring start address {:#x} as too large.".format(
-                                starting_address
-                            )
-                        )
-                        continue
-                    app_slices.append([starting_address, size, i])
-                slices.append(app_slices)
+            print(
+                repr(app.get_name()),
+                "placed at: 0x{:x}, size 0x{:x}"
+                    .format(*solution.get_placement(app.get_name()))
+            )
+        return
 
             # See if we can find an ordering that works.
             valid_order = brad_sort(slices)
@@ -1017,17 +958,6 @@ class TockLoader:
                     for app in apps:
                         logging.debug("{}".format(app.info(True)))
                 return
-
-            # Get sorted apps array.
-            logging.info("Found sort order:")
-            sorted_apps = []
-            for order in sorted(valid_order, key=lambda a: a[0]):
-                app = apps[order[2]]
-                logging.info(
-                    '  App "{}" at address {:#x}'.format(app.get_name(), order[0])
-                )
-                sorted_apps.append(app)
-            apps = sorted_apps
 
             # Iterate all of the apps, and see if we can make this work based on
             # having apps compiled for the correct addresses. If so, great! If
