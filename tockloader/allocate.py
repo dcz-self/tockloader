@@ -19,6 +19,7 @@ don't change the way to reach the solution, just the constraints.
 # https://z3prover.github.io/api/html/namespacez3py.html
 
 from dataclasses import dataclass
+from itertools import product
 import z3
 from z3 import *
 
@@ -71,6 +72,19 @@ def solve(free_memory_start, free_memory_end, align, apps):
         for a, start in zip(apps, starts) if a.fixed
     ]
     
-    constraints = And(*(c_placement + c_size + c_start))
+    c_overlap = [
+        Or(
+            a_start >= b_start + b_end,
+            b_start >= a_start + a_end,
+        )
+        for (a, (a_start, a_end)), (b, (b_start, b_end))
+        in product(
+            enumerate(zip(starts, sizes)),
+            enumerate(zip(starts, sizes)),
+        )
+        if a < b
+    ]
+    print(c_overlap)
+    constraints = And(*(c_placement + c_size + c_start + c_overlap))
     
     return z3.solve(constraints)
