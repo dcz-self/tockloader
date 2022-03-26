@@ -32,16 +32,19 @@ class App:
     size: int
     already_flashed: bool
 
-    def is_pic(self):
-        return True
+    def get_fixed_starts(self):
+        """Empty list if and only if the start can be placed anywhere."""
+        return []
 
 
 @dataclass
 class FixedApp(App):
-    start: int
+    starts: [int]
 
-    def is_pic(self):
-        return False
+    def get_fixed_starts(self):
+        if len(self.starts) == 0:
+            raise ValueError("No starts provided")
+        return self.starts
 
 
 def ceildiv(a, b):
@@ -84,9 +87,9 @@ def solve(free_memory_start, free_memory_end, align, apps):
     c_size = [ceildiv(a.size, align) <= size for a, size in zip(apps, sizes)]
 
     c_start = [
-        a.start // align >= start
+        Or(*[app_start // align >= start for app_start in a.get_fixed_starts()])
         for a, start in zip(apps, starts)
-        if not a.is_pic()
+        if a.get_fixed_starts()
     ]
     
     c_overlap = [
@@ -115,7 +118,7 @@ def solve(free_memory_start, free_memory_end, align, apps):
         return s.model()
 
 def test():
-    apps = [App('a', 10, False), FixedApp('b', 10, False, 0)]
+    apps = [App('a', 10, False), FixedApp('b', 10, False, [0])]
     model = solve(0,100, 1, apps)
 
     assert(model[Int('start/a')].as_long() % 16 == 0)
@@ -124,3 +127,14 @@ def test():
     assert(model[Int('start/b')] == 0)
     assert(model[Int('size/b')] == 16)
     
+    apps = [FixedApp('a', 10, False, [10]), FixedApp('b', 10, False, [10])]
+    model = solve(0, 100, 1, apps)
+    assert(model is None)
+    
+    apps = [FixedApp('a', 10, False, [0x10]), FixedApp('b', 10, False, [0, 10])]
+    model = solve(0, 100, 1, apps)
+    assert(model[Int('start/a')] == 0x10)
+    assert(model[Int('size/a')] == 16)
+    
+    assert(model[Int('start/b')] == 0)
+    assert(model[Int('size/b')] == 16)
