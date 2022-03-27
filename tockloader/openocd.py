@@ -160,7 +160,7 @@ class OpenOCD(BoardInterface):
         )
 
         return (
-            "{openocd_cmd} -c {cmd} --debug".format(
+            "{openocd_cmd} -c {cmd}".format(
                 openocd_cmd=self.openocd_cmd,
                 cmd=shlex.quote(command_param),
             ),
@@ -198,7 +198,8 @@ You may need to update OpenOCD to the version in latest git master."
                 )
             raise TockLoaderException("openocd error")
         elif self.args.debug:
-            print_output(p)
+            #print_output(p)
+            pass
 
         # check that there was a JTAG programmer and that it found a device
         stdout = p.stdout.decode("utf-8")
@@ -262,7 +263,8 @@ You may need to update OpenOCD to the version in latest git master."
                     stderr=subprocess.PIPE,
                 )
                 if self.args.debug:
-                    print_output(p)
+                    pass
+                    #print_output(p)
 
                 # Parse all output to look for a device.
                 stdouterr = p.stdout.decode("utf-8") + p.stderr.decode("utf-8")

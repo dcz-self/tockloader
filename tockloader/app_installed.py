@@ -168,12 +168,12 @@ class InstalledApp:
         """
         return self.app_binary
 
-    def get_binary(self, address, channel):
+    def get_binary(self, address, size, channel):
         logging.info("Reading app {} binary from board.".format(self))
         entire_app = channel.read_range(self.address, self.get_size())
         in_flash_tbfh = TBFHeader(entire_app)
         self.set_app_binary(entire_app[in_flash_tbfh.get_header_size() :])
-        
+        self.set_size(size)
         # Set the starting address for this app. This is only relevant with
         # fixed addresses, and is a no-op for apps which are not compiled for
         # fixed addresses.

@@ -247,7 +247,7 @@ class TabApp:
                 return tbf
         return None
 
-    def get_binary(self, address, channel=None):
+    def get_binary(self, address, size, channel=None):
         """
         Return the binary array comprising the entire application.
 
@@ -257,7 +257,7 @@ class TabApp:
         fitting_tbf = self.get_tbf_for_address(address)
         if fitting_tbf is None:
             raise ("Can't place this app here")
-        
+        self.set_size(size)
         app_binary = fitting_tbf.binary
         tbfh = fitting_tbf.tbfh
         tbfh.adjust_starting_address(address)

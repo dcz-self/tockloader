@@ -973,12 +973,19 @@ class TockLoader:
                 except:
                     pass
                 apps_with_gaps.append((app, start, size))
-                last_end = start + size
+            last_end = start + size
+
+        for a, start, size in apps_with_gaps:
+            try:
+                name = a.get_name()
+            except:
+                name = 'pad'
+            print(name, "0x{:x}, 0x{:x}".format(start, size))
 
         # Apps already on the board may get a new address.
         # Read their data before flashing,
         # or it may get overwritten prematurely by the flashing itself!
-        binaries = [(start, app.get_binary(start, self.channel))
+        binaries = [(start, app.get_binary(start, size, self.channel))
             for app, start, size in apps_with_gaps]
 
         dry = False
@@ -1032,18 +1039,23 @@ class TockLoader:
             )
             flash = self.channel.read_range(address, header_length)
 
+            print('flash')
             # if there was an error, the binary array will be empty
             if len(flash) < header_length:
+                print('err')
                 break
 
             # Get all the fields from the header
             tbfh = TBFHeader(flash)
-
+            print("hdr")
             if tbfh.is_valid():
                 if tbfh.is_app():
+                    print('app')
                     app = InstalledApp(tbfh, address)
                     apps.append(app)
                 else:
+                    print('padding')
+                    print(tbfh)
                     app = InstalledPaddingApp(tbfh, address)
                     if verbose:
                         # In verbose mode include padding
@@ -1052,6 +1064,7 @@ class TockLoader:
                 address += app.get_size()
 
             else:
+                print('invalid')
                 break
 
         if self.args.debug:

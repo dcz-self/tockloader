@@ -39,11 +39,13 @@ class PaddingApp:
         """
         return self.tbfh
 
-    def get_binary(self, address=None, channel=None):
+    def get_binary(self, address=None, size=None, channel=None):
         """
         Return the binary array comprising the header and the padding between
         apps.
         """
+        if size != self.get_size():
+            raise ValueError("Size differs")
         tbfh_binary = self.tbfh.get_binary()
         # Calculate the padding length.
         padding_binary_size = self.get_size() - len(tbfh_binary)
