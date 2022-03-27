@@ -930,7 +930,7 @@ class TockLoader:
             for app in apps
         ]
         # HACK: this only works for Cortex-M, for demonstration purposes.
-        solution = allocate.solve_flash(start_address, end_address, 256, solver_apps)
+        solution = allocate.solve_flash(start_address, end_address, 1024, solver_apps)
         if solution is None:
             logging.error("Unable to find a valid placement solution to flash apps.")
             return
@@ -1188,6 +1188,7 @@ class TockLoader:
                         app.get_address(), app.get_size()
                     ):
                         print("  [WARNING] App is misaligned for the MPU")
+                        print("0x{:x} sz 0x{:x}".format(app.get_address(), app.get_size()))
 
                     print(textwrap.indent(app.info(verbose), "  "))
                     print("")

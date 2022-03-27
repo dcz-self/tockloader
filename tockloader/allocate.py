@@ -75,6 +75,7 @@ def is_power_of_two(x):
     powers = [ 2**i for i in range(32) ]
     return Or([ x == p for p in powers ])
 
+"""For cortex-m, align should be 256, because that's the minimum region size, and tock assigns the entire region to the app."""
 def solve_flash(free_memory_start, free_memory_end, align, apps):
     # Divide all constant values by alignment.
     # Remainders don't serve any purpose,
@@ -94,8 +95,14 @@ def solve_flash(free_memory_start, free_memory_end, align, apps):
             start + size <= free_memory_end,
         )
 
+    def cortex_m_region_aligned(start, size):
+        return And(
+            start % size == 0,
+            is_power_of_two(size),
+        )
+
     c_placement = [
-        within_memory(start, size)
+        And(within_memory(start, size), cortex_m_region_aligned(start, size))
         for start, size in zip(starts, sizes)
     ]
 

@@ -1,6 +1,8 @@
+import logging
 import struct
 import textwrap
 
+from .tbfh import TBFHeader
 
 class InstalledApp:
     """
