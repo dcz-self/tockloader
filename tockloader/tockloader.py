@@ -966,8 +966,12 @@ class TockLoader:
             if (
                 not isinstance(app, InstalledApp)
                 # Installed app got moved
-                or app.get_start() != start
+                or app.get_address() != start
             ):
+                try:
+                    print("address", app.get_address())
+                except:
+                    pass
                 apps_with_gaps.append((app, start, size))
                 last_end = start + size
 
@@ -977,6 +981,7 @@ class TockLoader:
         binaries = [(start, app.get_binary(start, self.channel))
             for app, start, size in apps_with_gaps]
 
+        dry = False
         if not dry:
             # Actually write apps to the board.
             for start, binary in binaries:
