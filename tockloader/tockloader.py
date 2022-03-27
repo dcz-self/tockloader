@@ -930,7 +930,7 @@ class TockLoader:
             for app in apps
         ]
         # HACK: this only works for Cortex-M, for demonstration purposes.
-        solution = allocate.solve(start_address, end_address, 256, solver_apps)
+        solution = allocate.solve_flash(start_address, end_address, 256, solver_apps)
         if solution is None:
             logging.error("Unable to find a valid placement solution to flash apps.")
             return
@@ -944,9 +944,9 @@ class TockLoader:
                     .format(*placement)
             )
         
-        ordered_apps = list(sorted(ordered_apps, key=lambda a: a[1]))
+        ordered_apps = list(sorted(placements, key=lambda a: a[1]))
         
-        last_end = None
+        last_end = start_address
         apps_with_gaps = []
         for app, (start, size) in ordered_apps:
             # We don't track which padding apps are installed,
@@ -955,7 +955,7 @@ class TockLoader:
                 # Tock detects apps by valid tbf headers, one after another.
                 # An area between apps needsits own header,
                 # or the kernel will stop scanning.
-                gap_size = start - last-end
+                gap_size = start - last_end
                 apps_with_gaps.append(
                     (PaddingApp(gap_size), last_end, gap_size)
                 )

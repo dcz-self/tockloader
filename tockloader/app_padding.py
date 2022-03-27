@@ -39,7 +39,7 @@ class PaddingApp:
         """
         return self.tbfh
 
-    def get_binary(self, address=None):
+    def get_binary(self, address=None, channel=None):
         """
         Return the binary array comprising the header and the padding between
         apps.

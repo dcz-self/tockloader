@@ -227,8 +227,8 @@ class TabApp:
 
         # Find first tbf that can operate within the selected range:
         # after `address`
-        for tbf in sorted(self.tbfs, lambda tbf: tbf.get_fixed_addresses()[1]):
-            ram, flash = tbf.tbfh.get_fixed_addresses()
+        for tbf in sorted(self.tbfs, key=lambda tbf: tbf.tbfh.get_fixed_addresses()[1]):
+            ram, flash_address = tbf.tbfh.get_fixed_addresses()
             
             tbf_header_length = tbf.tbfh.get_header_size()
 
@@ -241,20 +241,20 @@ class TabApp:
             # address. So, we want to see if we can reasonably do that. If we
             # are within 128 bytes, we say that we can.
             if (
-                fixed_flash_address >= (address + tbf_header_length)
-                and (address + tbf_header_length + 128) > fixed_flash_address
+                flash_address >= (address + tbf_header_length)
+                and (address + tbf_header_length + 128) > flash_address
             ):
                 return tbf
         return None
 
-    def get_binary(self, address):
+    def get_binary(self, address, channel=None):
         """
         Return the binary array comprising the entire application.
 
         `address` is the address of flash the _start_ of the app will be placed
         at. This means where the TBF header will go.
         """
-        fitting_tbf = self.get_tbf_for_address(self, address)
+        fitting_tbf = self.get_tbf_for_address(address)
         if fitting_tbf is None:
             raise ("Can't place this app here")
         
