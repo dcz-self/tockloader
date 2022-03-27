@@ -944,20 +944,13 @@ class TockLoader:
                     .format(*placement)
             )
         
-        # Flash only apps that are new or have been modified.
-        # The only way an app
-        # would not be modified is if it was read off the board.
-        to_flash_apps = [
-            (app, (start, size)) for (app, (start, size)) in apps
-            if not isinstance(app, InstalledApp)
-                or app.get_start() != start
-        ]
-        
-        to_flash_apps = list(sorted(to_flash_apps, key=lambda a: a[1]))
+        ordered_apps = list(sorted(ordered_apps, key=lambda a: a[1]))
         
         last_end = None
         apps_with_gaps = []
-        for app, (start, size) in to_flash_apps:
+        for app, (start, size) in ordered_apps:
+            # We don't track which padding apps are installed,
+            # so let's flash all of them.
             if last_end != start:
                 # Tock detects apps by valid tbf headers, one after another.
                 # An area between apps needsits own header,
@@ -966,8 +959,17 @@ class TockLoader:
                 apps_with_gaps.append(
                     (PaddingApp(gap_size), last_end, gap_size)
                 )
-            apps_with_gaps.append((app, start, size))
-            last_end = start + size
+                
+            # Flash only apps that are new or need to be modified.
+            # The only way an app needs to be modified is if it's installed
+            # and its new start is different than the old one.
+            if (
+                not isinstance(app, InstalledApp)
+                # Installed app got moved
+                or app.get_start() != start
+            ):
+                apps_with_gaps.append((app, start, size))
+                last_end = start + size
 
         # Apps already on the board may get a new address.
         # Read their data before flashing,
