@@ -410,16 +410,23 @@ You may need to update OpenOCD to the version in latest git master."
             cleanup.append(ocd_p.wait)
             cleanup.append(ocd_p.kill)
 
-            # Delay to give the connection time to start before running
-            # the RTT listener.
-            time.sleep(1)
-            if ocd_p.poll():
-                return
-
-            logging.status("Listening for messages.")
             listener = socket.socket()
-            listener.connect(("127.0.0.1", 9999))
+            for i in reversed(range(3)):
+                # Delay to give the connection time to start before running
+                # the RTT listener.
+                time.sleep(1)
+                if ocd_p.poll():
+                    return
+                try:
+                    listener.connect(("127.0.0.1", 9999))
+                    break
+                except ConnectionRefusedError:
+                    if i == 0:
+                        raise
+            
             cleanup.append(listener.close)
+            logging.status("Listening for messages.")
+            
             out = listener.makefile(mode="rb")
             cleanup.append(out.close)
             for out_line in iter(out.readline, ""):
